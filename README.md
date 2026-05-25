@@ -1,111 +1,167 @@
 # Cursor RTL Chat Fix
 
-Fixes **Right-to-Left (RTL)** text rendering in [Cursor](https://cursor.com) AI Chat for Arabic, Persian, and other RTL languages. Messages, code blocks, tables, and Plan Mode display correctly without re-applying the fix after each restart.
+Fixes **Right-to-Left (RTL)** text in [Cursor](https://cursor.com) AI Chat for Arabic, Persian, and other RTL languages.
 
-> **Compatible with:** Cursor 2.4.37+ (uses `app.on('browser-window-created')`, no `BrowserWindow` override).
-
----
-
-## ✨ Features
-
-- **Persistent:** Applied automatically on every window and survives restarts (no DevTools paste each time).
-- **RTL everywhere:** Chat messages, input field, placeholders, lists, tables, and code blocks in responses.
-- **All windows:** Main window and any secondary windows get RTL injection.
-- **Safe:** Does not override `BrowserWindow` (avoids "property has only a getter" errors on newer Cursor).
+> **Tested on:** Cursor **3.5+** (Composer / Agent UI with `.markdown-root`, streamdown, and legacy `.anysphere-markdown-container-root`).
 
 ---
 
-## 🛠 How to Use
+## Features
 
-### 1. Locate Cursor’s app folder
-
-Find the folder that contains `main.js` (usually `resources/app/out` inside your Cursor install):
-
-| OS        | Typical path |
-|-----------|--------------|
-| **Windows** | `C:\Users\<USER>\AppData\Local\Programs\cursor\resources\app\out` or your install path `...\cursor\resources\app\out` |
-| **macOS**   | `Cursor.app/Contents/Resources/app/out` |
-| **Linux**   | `.../resources/app/out` (inside your Cursor install) |
-
-### 2. Backup
-
-- Copy **`main.js`** from that folder to a safe place (e.g. Desktop).
-
-### 3. Add `rtl.js`
-
-- Place **`rtl.js`** in the **same folder as `main.js`** (e.g. `.../out/rtl.js`).
-- You can use the `rtl.js` from this repo or your own script that injects RTL styles (e.g. via `document.createElement('style')`).
-
-### 4. Patch `main.js`
-
-- Open **`main.js`** in a text editor (e.g. Notepad++, VS Code).
-- Find the **first comment block** at the top:
-
-  ```
-  /*!--------------------------------------------------------
-   * Copyright (C) Microsoft Corporation. All rights reserved.
-   *--------------------------------------------------------*/
-  ```
-
-- **Right after that block**, before any other code (e.g. before `!function(){...}`), **insert this single line**:
-
-  ```js
-  import{createRequire}from"module";import{fileURLToPath}from"url";const _require=createRequire(import.meta.url);const _dirname=fileURLToPath(new URL(".",import.meta.url));(function(){var fs=_require("fs"),path=_require("path"),electron=_require("electron");var rtlPath=path.join(_dirname,"rtl.js");var rtlScript="";try{rtlScript=fs.readFileSync(rtlPath,"utf-8");}catch(e){}if(rtlScript){electron.app.on("browser-window-created",function(ev,win){if(win&&win.webContents){win.webContents.on("did-finish-load",function(){win.webContents.executeJavaScript(rtlScript).catch(function(){});});}});}})();
-  ```
-
-- Save the file (keep encoding as UTF-8).
-
-### 5. Restart Cursor
-
-- Close Cursor completely, then open it again. RTL should apply automatically in chat, code, and tables.
+- RTL for **AI responses** (plain text and markdown in Composer)
+- RTL for **user input** (prompt / Lexical editor)
+- **Code blocks stay LTR**
+- **Model picker / menus stay LTR**
+- Works after restart — no DevTools paste each time
+- Single file: **`rtl.js`** (CSS + JavaScript)
 
 ---
 
-## 📁 File layout
+## Quick install (Windows)
+
+1. Close Cursor completely (**File → Exit**).
+2. Open PowerShell in this folder and run:
+
+```powershell
+.\install.ps1 -CursorOut "D:\programs\cursor\cursor\resources\app\out"
+```
+
+Change the path to your Cursor `out` folder if different.
+
+3. Open Cursor again.
+
+---
+
+## Manual install
+
+### 1. Find Cursor `out` folder
+
+| OS | Typical path |
+|----|--------------|
+| **Windows** | `C:\Users\<USER>\AppData\Local\Programs\cursor\resources\app\out` |
+| **Windows (custom)** | e.g. `D:\programs\cursor\cursor\resources\app\out` |
+| **macOS** | `Cursor.app/Contents/Resources/app/out` |
+| **Linux** | `.../resources/app/out` |
+
+### 2. Copy `rtl.js`
+
+Copy **`rtl.js`** from this repo to the **`out`** folder (same level as `main.js`):
 
 ```
 .../resources/app/out/
-├── main.js   ← patched (one line added at top)
-├── rtl.js    ← RTL script (same folder as main.js)
-└── ...
+├── main.js
+├── rtl.js          ← here
+└── vs/...
+```
+
+### 3. Patch `main.js`
+
+Open **`main.js`**. After the first copyright comment block:
+
+```
+/*!--------------------------------------------------------
+ * Copyright (C) Microsoft Corporation. All rights reserved.
+ *--------------------------------------------------------*/
+```
+
+Paste the **entire contents** of **`main.patch.js`** on the next line (one line, no line breaks inside).
+
+Or copy from here:
+
+```js
+import{createRequire}from"module";import{fileURLToPath}from"url";const _require=createRequire(import.meta.url);const _dirname=fileURLToPath(new URL(".",import.meta.url));(function(){var fs=_require("fs"),path=_require("path"),electron=_require("electron");var rtlPath=path.join(_dirname,"rtl.js");var rtlScript="";try{rtlScript=fs.readFileSync(rtlPath,"utf-8");}catch(e){}if(!rtlScript)return;var hooked=new WeakSet();function inject(wc){if(!wc||wc.isDestroyed())return;wc.executeJavaScript(rtlScript).catch(function(){});}function hookWindow(win){if(!win||!win.webContents||hooked.has(win))return;hooked.add(win);var wc=win.webContents;wc.on("dom-ready",function(){inject(wc);});wc.on("did-finish-load",function(){inject(wc);});wc.on("did-navigate-in-page",function(){inject(wc);});}electron.app.on("browser-window-created",function(ev,win){hookWindow(win);});electron.app.whenReady().then(function(){electron.BrowserWindow.getAllWindows().forEach(hookWindow);});})();
+```
+
+### 4. Patch `workbench.html`
+
+Open:
+
+```
+out/vs/code/electron-sandbox/workbench/workbench.html
+```
+
+Find:
+
+```html
+<link rel="stylesheet" href="../../../workbench/workbench.desktop.main.css">
+```
+
+Add **right after it**:
+
+```html
+		<!-- Cursor RTL Chat Fix -->
+		<script src="../../../../rtl.js"></script>
+```
+
+### 5. Restart Cursor
+
+Close completely and reopen.
+
+---
+
+## File layout
+
+```
+cursor_fix_rtl/
+├── rtl.js           # RTL fix (CSS + JS)
+├── main.patch.js    # One-line patch for main.js
+├── install.ps1      # Windows auto-installer
+├── README.md
+└── LICENSE
+```
+
+After install:
+
+```
+.../cursor/resources/app/out/
+├── main.js          # patched
+├── rtl.js           # copied
+└── vs/code/electron-sandbox/workbench/workbench.html   # patched
 ```
 
 ---
 
-## 🔧 How it works
+## How it works
 
-- Cursor runs `main.js` as an **ES module** (`"type": "module"`), so the patch uses `createRequire` and `fileURLToPath` instead of `require`.
-- It does **not** modify `BrowserWindow` (which is read-only in recent Cursor).
-- It listens for **`app.on('browser-window-created')`**: for each new window, it attaches **`did-finish-load`** on `webContents` and runs **`rtl.js`** via `executeJavaScript`, so RTL is applied in the UI.
-
----
-
-## ❓ Troubleshooting
-
-| Issue | What to do |
-|-------|------------|
-| Cursor won’t start or shows an error | Ensure the added line was copied **entirely** and no original code was removed. Restore `main.js` from backup and re-apply the patch. |
-| `require is not defined` | The patch must start with `import{createRequire}from"module";`. Keep the file as an ES module (don’t rename to `.cjs`). |
-| RTL doesn’t appear | Ensure **`rtl.js`** is in the **same folder as `main.js`** and the filename is exactly **`rtl.js`**. Restart Cursor after any change. |
-| RTL gone after Cursor update | Updates may overwrite `main.js`. Re-apply the same patch line to the new `main.js` or restore from backup and patch again. |
+1. **`workbench.html`** loads `rtl.js` when the UI starts.
+2. **`main.js` patch** injects the same script into every BrowserWindow (`dom-ready`, `did-finish-load`, `did-navigate-in-page`) as a fallback.
+3. **`rtl.js`** injects RTL CSS and watches the DOM for AI markdown (`.markdown-root`, `.anysphere-markdown-container-root`, `.markdown-section`), including streaming text.
 
 ---
 
-## ⚠️ Note
+## Troubleshooting
 
-- Modifying app files may be reverted by Cursor updates; keep a backup of **`main.js`** and re-apply the patch after upgrading if needed.
-- This is an unofficial fix and is not affiliated with Cursor.
+| Issue | Fix |
+|-------|-----|
+| AI text still LTR | Full restart (File → Exit). Re-run `install.ps1`. |
+| Cursor won't start | Restore `main.js` from `backup/` folder. Re-apply patch carefully. |
+| Fix lost after update | Cursor updates overwrite `main.js` / `workbench.html`. Re-run install. |
+| `require is not defined` | Patch must use `import{createRequire}` — see `main.patch.js`. |
 
 ---
 
-## 📄 License
+## Uninstall
 
-MIT — use and modify as you like. If you share your version, crediting this approach is appreciated.
+1. Delete `out/rtl.js`
+2. Remove the patch line from `main.js` (the line starting with `import{createRequire}`)
+3. Remove the `<script src="../../../../rtl.js">` block from `workbench.html`
+4. Restart Cursor
+
+---
+
+## Note
+
+- Unofficial fix — not affiliated with Cursor.
+- App file edits may be reset on Cursor updates. Keep backups.
+
+---
+
+## License
+
+MIT
 
 ---
 
 ## About
 
-Fixes RTL text rendering in Cursor AI Chat | حل مشكلة عرض النصوص العربية والفارسية من اليمين لليسار في Cursor
-
-**Topics:** `rtl` `cursor` `cursor-ide` `arabic` `persian` `rtl-fix`
+Fixes RTL in Cursor AI Chat | حل مشكلة عرض النصوص العربية من اليمين لليسار في Cursor
