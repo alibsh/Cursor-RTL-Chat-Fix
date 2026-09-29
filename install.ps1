@@ -41,17 +41,30 @@ Write-Host "[OK] Copied rtl.js"
 
 # Patch main.js
 $mainContent = Get-Content $MainJs -Raw -Encoding UTF8
-if ($mainContent -notmatch [regex]::Escape($PatchMarker)) {
-    $patch = Get-Content $PatchSrc -Raw -Encoding UTF8
-    $marker = "*/`r`n"
+$patch = (Get-Content $PatchSrc -Raw -Encoding UTF8).Trim()
+$loaderUpdated = $false
+$patchRegex = [regex]'import\{createRequire\}from"module";[\s\S]*?\}\)\(\);'
+$patchMatch = $patchRegex.Match($mainContent)
+
+if ($patchMatch.Success) {
+    if ($patchMatch.Value -eq $patch) {
+        Write-Host "[SKIP] main.js patch already current"
+    } else {
+        $mainContent = $mainContent.Substring(0, $patchMatch.Index) + $patch + $mainContent.Substring($patchMatch.Index + $patchMatch.Length)
+        Set-Content -Path $MainJs -Value $mainContent -Encoding UTF8 -NoNewline
+        $loaderUpdated = $true
+        Write-Host "[OK] Updated main.js loader"
+    }
+} elseif ($mainContent -notmatch [regex]::Escape($PatchMarker)) {
     if ($mainContent -notmatch '\*/\s*\r?\n') {
         Write-Error "Could not find copyright block end in main.js"
     }
     $mainContent = $mainContent -replace '\*/\s*\r?\n', "*/`r`n$patch"
     Set-Content -Path $MainJs -Value $mainContent -Encoding UTF8 -NoNewline
+    $loaderUpdated = $true
     Write-Host "[OK] Patched main.js"
 } else {
-    Write-Host "[SKIP] main.js already patched"
+    Write-Error "main.js mentions rtl.js but the loader line was not found"
 }
 
 # Patch workbench.html
@@ -66,5 +79,10 @@ if ($html -notmatch [regex]::Escape($ScriptTag)) {
 }
 
 Write-Host ""
-Write-Host "Done. Restart Cursor completely (File -> Exit)."
+if ($loaderUpdated) {
+    Write-Host "main.js loader changed. Restart Cursor once (File -> Exit)."
+    Write-Host "After that, Ctrl+Shift+R reloads rtl.js without a full restart."
+} else {
+    Write-Host "Reload Cursor with Ctrl+Shift+R. A full restart is not required."
+}
 Write-Host "Backups saved in: $BackupDir"
