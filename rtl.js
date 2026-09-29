@@ -215,6 +215,159 @@
     }
 
     /*
+     * Code inside the preview only.
+     *
+     * Do not use isCode(). An ancestor .monaco-editor would make
+     * every preview block look like code.
+     */
+    function isPreviewCode(el) {
+        return !!el.closest(
+            'pre, code, .ui-code-block, .markdown-code-outer-container, ' +
+            '.cursor-code-block-content, [data-streamdown="code-block"]'
+        );
+    }
+
+    function previewText(el) {
+        var walker = document.createTreeWalker(
+            el,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: function (node) {
+                    var parent = node.parentElement;
+
+                    if (!parent || isPreviewCode(parent)) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            }
+        );
+
+        var text = '';
+        var node;
+
+        while ((node = walker.nextNode())) {
+            text += ' ' + (node.textContent || '');
+        }
+
+        return text.trim();
+    }
+
+    function cssString(value) {
+        return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
+
+    /*
+     * Position of one block under its ProseMirror root.
+     * Used only in a stylesheet. Nothing is written onto the
+     * editor DOM: setting dir there makes ProseMirror rebuild
+     * forever and Cursor never finishes starting.
+     */
+    function previewBlockPath(el, prose) {
+        var parts = [];
+        var node = el;
+
+        while (node && node !== prose) {
+            var index = 1;
+            var sib = node.previousElementSibling;
+
+            while (sib) {
+                index++;
+                sib = sib.previousElementSibling;
+            }
+
+            parts.push(node.tagName.toLowerCase() + ':nth-child(' + index + ')');
+            node = node.parentElement;
+        }
+
+        if (node !== prose) return '';
+
+        return parts.reverse().join(' > ');
+    }
+
+    function previewBlockDecl(el) {
+        var decl = 'direction:rtl!important;text-align:right!important;unicode-bidi:isolate!important';
+
+        if ((el.tagName === 'UL' || el.tagName === 'OL') &&
+            el.getAttribute('data-type') !== 'taskList') {
+            decl += ';padding-left:0!important;padding-right:1.5em!important';
+        }
+
+        if (el.tagName === 'BLOCKQUOTE') {
+            decl += ';padding-left:0!important;padding-right:var(--cursor-spacing-3,12px)!important';
+            decl += ';border-left-width:0!important;border-right:3px solid var(--cursor-stroke-secondary,currentColor)!important';
+        }
+
+        return '{' + decl + '}';
+    }
+
+    /*
+     * Each heading, paragraph, list, and table cell is RTL only
+     * when its own text contains Persian or Arabic.
+     * The table element is not targeted, so column order stays.
+     * Code rules are fixed and always LTR.
+     */
+    function syncMarkdownPreviewCss() {
+        var style = document.getElementById('cursor-rtl-md-preview');
+
+        if (!style) {
+            style = document.createElement('style');
+            style.id = 'cursor-rtl-md-preview';
+            (document.head || document.documentElement).appendChild(style);
+        }
+
+        var css =
+            '[data-component="file-tab-markdown-preview"] .ProseMirror pre,' +
+            '[data-component="file-tab-markdown-preview"] .ProseMirror pre code' +
+            '{direction:ltr!important;text-align:left!important;unicode-bidi:isolate!important}' +
+            '[data-component="file-tab-markdown-preview"] .ProseMirror :not(pre)>code' +
+            '{direction:ltr!important;unicode-bidi:isolate!important}';
+
+        document.querySelectorAll(
+            '[data-component="file-tab-markdown-preview"]'
+        ).forEach(function (root) {
+            var path = root.getAttribute('data-file-path');
+            var scope = '[data-component="file-tab-markdown-preview"]';
+
+            if (path) {
+                scope += '[data-file-path="' + cssString(path) + '"]';
+            }
+
+            root.querySelectorAll('.ProseMirror').forEach(function (prose) {
+                prose.querySelectorAll(TEXT_BLOCK_SELECTOR + ',ul,ol').forEach(function (el) {
+                    if (isPreviewCode(el)) return;
+                    if (!containsRTL(previewText(el))) return;
+
+                    var blockPath = previewBlockPath(el, prose);
+
+                    if (!blockPath) return;
+
+                    css += scope + ' .ProseMirror > ' + blockPath + previewBlockDecl(el);
+                });
+            });
+        });
+
+        if (style.textContent !== css) {
+            style.textContent = css;
+        }
+    }
+
+    var previewTimer = 0;
+
+    function scheduleMarkdownPreviewCss() {
+        if (previewTimer) return;
+
+        previewTimer = setTimeout(function () {
+            previewTimer = 0;
+
+            try {
+                syncMarkdownPreviewCss();
+            } catch (e) {}
+        }, 50);
+    }
+
+    /*
      * Process a rendered user message.
      */
     function processHumanMessage(el) {
@@ -308,6 +461,8 @@
         document.querySelectorAll(CHAT_ROOTS).forEach(function (root) {
             processChatArea(root);
         });
+
+        scheduleMarkdownPreviewCss();
     }
 
     /*
