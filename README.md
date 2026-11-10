@@ -124,7 +124,7 @@ After install:
 ## How it works
 
 1. **`workbench.html`** loads `rtl.js` when the UI starts.
-2. **`main.js` patch** injects the same script into every BrowserWindow (`dom-ready`, `did-finish-load`, `did-navigate-in-page`) as a fallback.
+2. **`main.js` patch** (Cursor **before 3.29.9** only) injects the same script into every BrowserWindow as a fallback. **`install.ps1` skips `main.js` on 3.29.9+** because that patch breaks startup on newer builds.
 3. **`rtl.js`** injects RTL CSS and watches the DOM for AI markdown (`.markdown-root`, `.anysphere-markdown-container-root`, `.markdown-section`), including streaming text.
 
 ---
@@ -134,7 +134,7 @@ After install:
 | Issue | Fix |
 |-------|-----|
 | AI text still LTR | Full restart (File → Exit). Re-run `install.ps1`. |
-| Cursor won't start | Restore `main.js` from `backup/` folder. Re-apply patch carefully. |
+| Cursor won't start | Restore `main.js` from `backup/`. On Cursor **3.29.9+**, do not patch `main.js` — use `workbench.html` only. |
 | Fix lost after update | Cursor updates overwrite `main.js` / `workbench.html`. Re-run install. |
 | `require is not defined` | Patch must use `import{createRequire}` — see `main.patch.js`. |
 

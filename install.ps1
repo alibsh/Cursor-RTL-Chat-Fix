@@ -14,6 +14,52 @@ $MainJs = Join-Path $CursorOut "main.js"
 $WorkbenchHtml = Join-Path $CursorOut "vs\code\electron-sandbox\workbench\workbench.html"
 $ScriptTag = '<script src="../../../../rtl.js"></script>'
 $PatchMarker = "rtl.js"
+$MainPatchMinVersion = "3.29.9"
+$patchRegex = [regex]'import\{createRequire\}from"module";[\s\S]*?\}\)\(\);'
+
+function Get-CursorSemVersion {
+    param([string]$OutDir)
+
+    $packageJson = Join-Path (Split-Path $OutDir -Parent) "package.json"
+    if (Test-Path $packageJson) {
+        $meta = Get-Content $packageJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($meta.version) {
+            return [string]$meta.version
+        }
+    }
+
+    $cursor = Get-Command cursor -ErrorAction SilentlyContinue
+    if ($cursor) {
+        $banner = & cursor -v 2>&1 | Out-String
+        if ($banner -match '(\d+\.\d+\.\d+)') {
+            return $Matches[1]
+        }
+    }
+
+    return $null
+}
+
+function Test-SemVerAtLeast {
+    param(
+        [string]$Version,
+        [string]$Minimum
+    )
+
+    $left = $Version -split '\.'
+    $right = $Minimum -split '\.'
+    $count = [Math]::Max($left.Count, $right.Count)
+
+    for ($i = 0; $i -lt $count; $i++) {
+        $a = 0
+        $b = 0
+        if ($i -lt $left.Count) { $a = [int]$left[$i] }
+        if ($i -lt $right.Count) { $b = [int]$right[$i] }
+        if ($a -gt $b) { return $true }
+        if ($a -lt $b) { return $false }
+    }
+
+    return $true
+}
 
 if (-not (Test-Path $CursorOut)) {
     Write-Error "Cursor out folder not found: $CursorOut"
@@ -39,14 +85,34 @@ if (Test-Path $RtlDst) {
 Copy-Item $RtlSrc $RtlDst -Force
 Write-Host "[OK] Copied rtl.js"
 
-# Patch main.js
+# Patch main.js (older Cursor only; 3.29.9+ loads rtl.js from workbench.html)
+$cursorVersion = Get-CursorSemVersion -OutDir $CursorOut
+$skipMainPatch = $false
+
+if ($cursorVersion -and (Test-SemVerAtLeast -Version $cursorVersion -Minimum $MainPatchMinVersion)) {
+    $skipMainPatch = $true
+    Write-Host "[INFO] Cursor $cursorVersion - skipping main.js patch (>= $MainPatchMinVersion)"
+} elseif ($cursorVersion) {
+    Write-Host "[INFO] Cursor $cursorVersion - main.js patch enabled"
+} else {
+    Write-Host "[WARN] Could not detect Cursor version; keeping legacy main.js patch behavior"
+}
+
 $mainContent = Get-Content $MainJs -Raw -Encoding UTF8
 $patch = (Get-Content $PatchSrc -Raw -Encoding UTF8).Trim()
 $loaderUpdated = $false
-$patchRegex = [regex]'import\{createRequire\}from"module";[\s\S]*?\}\)\(\);'
 $patchMatch = $patchRegex.Match($mainContent)
 
-if ($patchMatch.Success) {
+if ($skipMainPatch) {
+    if ($patchMatch.Success) {
+        $mainContent = $mainContent.Substring(0, $patchMatch.Index) + $mainContent.Substring($patchMatch.Index + $patchMatch.Length)
+        Set-Content -Path $MainJs -Value $mainContent -Encoding UTF8 -NoNewline
+        $loaderUpdated = $true
+        Write-Host "[OK] Removed main.js RTL loader"
+    } else {
+        Write-Host "[SKIP] main.js left untouched"
+    }
+} elseif ($patchMatch.Success) {
     if ($patchMatch.Value -eq $patch) {
         Write-Host "[SKIP] main.js patch already current"
     } else {
@@ -79,7 +145,13 @@ if ($html -notmatch [regex]::Escape($ScriptTag)) {
 }
 
 Write-Host ""
-if ($loaderUpdated) {
+if ($skipMainPatch) {
+    if ($loaderUpdated) {
+        Write-Host "Restart Cursor once (File -> Exit) so the removed main.js patch takes effect."
+    }
+    Write-Host "RTL loads from workbench.html on this Cursor version."
+    Write-Host "After update.bat, Ctrl+Shift+R is enough (no full restart unless main.js was changed)."
+} elseif ($loaderUpdated) {
     Write-Host "main.js loader changed. Restart Cursor once (File -> Exit)."
     Write-Host "After that, Ctrl+Shift+R reloads rtl.js without a full restart."
 } else {
